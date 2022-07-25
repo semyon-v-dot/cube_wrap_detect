@@ -1,6 +1,7 @@
 ds/
 debug/
 logs/
+yolov3.weights
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
