@@ -32,7 +32,7 @@ class CONST:
     debug_show_vid = True
     debug_show_time_in_console = False
     debug_show_left_border = False
-    debug_skip_sec_beginning = 90
+    debug_skip_sec_beginning = 420
     debug_skip_sec = 10
 
     status_cube_stands = 'Куб выехал на обмотку'
@@ -287,7 +287,7 @@ class WrapCircle:
         )
 
 
-class CheckCubeWrap_Info:
+class CheckCubeWrap_State:
     cube_stands = False
     left_border_was_disturbed = True
     last_b_c_frame_n: Optional[int] = None
@@ -326,7 +326,7 @@ class CheckCubeWrap_Info:
 
 class CheckCubeWrap:
     _vid_name: str
-    _info = CheckCubeWrap_Info()
+    _state = CheckCubeWrap_State()
 
     _video_cam: str
     _cam_id: str = 'cube_wrap'
@@ -431,7 +431,7 @@ class CheckCubeWrap:
                 connect_lost = False
 
     def _process_contours(self, frame1, frame2, fr_counter: int, vid_fps):
-        info = self._info
+        state = self._state
         сontours, _ = cv.findContours(
             self._get_frames_diff(frame1, frame2),
             cv.RETR_TREE,
@@ -439,18 +439,18 @@ class CheckCubeWrap:
         for contour in сontours:
             (x, y, w, h) = cv.boundingRect(contour)
             x2, y2 = x+w, y+h
-            if CONST.debug_show_vid and info.last_big_contour_square is not None:
+            if CONST.debug_show_vid and state.last_big_contour_square is not None:
                 cv.rectangle(
                     frame1,
-                    info.last_big_contour_square.get_up_left_point(),
-                    info.last_big_contour_square.get_down_right_point(),
+                    state.last_big_contour_square.get_up_left_point(),
+                    state.last_big_contour_square.get_down_right_point(),
                     (255),
                     thickness=2
                 )
             self._check_cube(fr_counter, vid_fps, x, y, w, h)
             if (
-                info.cube_stands
-                and not info.last_cube_was_wrapped()
+                state.cube_stands
+                and not state.last_cube_was_wrapped()
                 and w * h >= CONST.wrapper_min_area
             ):
                 self._check_wrapper(fr_counter, vid_fps, x, y, x2, y2)
@@ -463,48 +463,48 @@ class CheckCubeWrap:
                         thickness=2)
 
     def _check_wrapper(self, fr_counter: int, vid_fps, x, y, x2, y2):
-        info = self._info
+        state = self._state
         wrapper_info = WrapperInfo(
             frame_n=self._get_frame_n_for_info(fr_counter, vid_fps),
             sec=int(fr_counter/vid_fps),
             rectangle=Rectangle(x=x, y=y, x2=x2, y2=y2)
         )
-        if info.try_add_wrapper_info(wrapper_info) and info.all_circles_are_done():
+        if state.try_add_wrapper_info(wrapper_info) and state.all_circles_are_done():
             self._print_log(CONST.status_cube_was_wrapped,
                             CONST.log_status_event)
-            info.set_last_cube_wrapped()
+            state.set_last_cube_wrapped()
 
     def _check_cube(self, fr_counter: int, vid_fps, x, y, w, h):
-        info = self._info
+        state = self._state
         x2, y2 = x+w, y+h
         if w * h >= CONST.cube_min_area:
-            info.last_b_c_frame_n = fr_counter
-            info.last_big_contour_square = (
+            state.last_b_c_frame_n = fr_counter
+            state.last_big_contour_square = (
                 Rectangle(x=x2-(y2-y), y=y, x2=x2, y2=y2))
-            last_b_c_square_x, _ = info.last_big_contour_square.get_up_left_point()
-            info.left_border_was_disturbed = last_b_c_square_x < CONST.cube_left_border
-        if (info.last_b_c_frame_n is not None
-                and (fr_counter - info.last_b_c_frame_n) / vid_fps >= CONST.one_second):
-            if not info.left_border_was_disturbed and not info.cube_stands:
+            last_b_c_square_x, _ = state.last_big_contour_square.get_up_left_point()
+            state.left_border_was_disturbed = last_b_c_square_x < CONST.cube_left_border
+        if (state.last_b_c_frame_n is not None
+                and (fr_counter - state.last_b_c_frame_n) / vid_fps >= CONST.one_second):
+            if not state.left_border_was_disturbed and not state.cube_stands:
                 self._print_log(CONST.status_cube_stands,
                                 CONST.log_status_event)
-                info.cube_stands = True
+                state.cube_stands = True
                 self._enlarge_last_b_c_square()
                 cube_stop_frame_n: int = (
-                    self._get_frame_n_for_info(info.last_b_c_frame_n, vid_fps))
-                info.set_cube_info(
+                    self._get_frame_n_for_info(state.last_b_c_frame_n, vid_fps))
+                state.set_cube_info(
                     CubeInfo(
                         cube_stop_frame_n=cube_stop_frame_n,
                         cube_stop_sec=int(cube_stop_frame_n / vid_fps),
-                        square=info.last_big_contour_square.get_copy())
+                        square=state.last_big_contour_square.get_copy())
                 )
-            elif info.left_border_was_disturbed:
+            elif state.left_border_was_disturbed:
                 self._print_log(CONST.status_cube_left, CONST.log_status_event)
-                info.cube_stands = False
+                state.cube_stands = False
             if not CONST.debug_show_vid:
-                info.last_big_contour_square = None
-            info.last_b_c_frame_n = None
-            info.left_border_was_disturbed = True
+                state.last_big_contour_square = None
+            state.last_b_c_frame_n = None
+            state.left_border_was_disturbed = True
 
     def _print_log(self, text: str, event_n: int):
         print(datetime.today(), text)
@@ -523,7 +523,7 @@ class CheckCubeWrap:
             cv.destroyAllWindows()
 
     def _end_the_check_vid(self, vid):
-        cube_info, wrapper_circles = self._info.get_last_cube_info()
+        cube_info, wrapper_circles = self._state.get_last_cube_info()
         self._write_cube_info(cube_info)
         self._write_wrapper_circles(cube_info, wrapper_circles)
         vid.release()
@@ -550,7 +550,7 @@ class CheckCubeWrap:
 
     def _enlarge_last_b_c_square(self):
         self._apply_cube_square_size_increase(
-            self._info.last_big_contour_square
+            self._state.last_big_contour_square
         )
 
     def _downsize_cube_square(self, cube_info: CubeInfo):
