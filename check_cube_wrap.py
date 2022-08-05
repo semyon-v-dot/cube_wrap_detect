@@ -11,10 +11,10 @@ URL: Optional[str] = r'rtsp://admin:admin@10.98.26.30:554/live/main'
 
 
 class CONST:
-    cube_min_area = int(3e5)
+    cube_detect_min_area = int(3e5)
     cube_left_border = int(4e2)
-    cube_square_size_increase = int(1e1)
-    cube_square_x_increase = int(3e2)
+    cube_square_size_increase = int(1e2)
+    cube_square_x_increase = int(9e1)
 
     wrapper_min_area = int(1e4)
     wrapper_circles_for_one_wrap = 10
@@ -29,10 +29,10 @@ class CONST:
     debug_root_dirname = 'debug'
     debug_wrapper_imgs_dirname = 'wrapper_moves'
 
-    debug_show_vid = True
+    debug_show_vid = False
     debug_show_time_in_console = False
     debug_show_left_border = False
-    debug_skip_sec_beginning = 420
+    debug_skip_sec_beginning = 120
     debug_skip_sec = 10
 
     status_cube_stands = 'Куб выехал на обмотку'
@@ -439,14 +439,25 @@ class CheckCubeWrap:
         for contour in сontours:
             (x, y, w, h) = cv.boundingRect(contour)
             x2, y2 = x+w, y+h
-            if CONST.debug_show_vid and state.last_big_contour_square is not None:
-                cv.rectangle(
-                    frame1,
-                    state.last_big_contour_square.get_up_left_point(),
-                    state.last_big_contour_square.get_down_right_point(),
-                    (255),
-                    thickness=2
-                )
+            if CONST.debug_show_vid:
+                if state.last_big_contour_square is not None:
+                    cv.rectangle(
+                        frame1,
+                        state.last_big_contour_square.get_up_left_point(),
+                        state.last_big_contour_square.get_down_right_point(),
+                        (255, 0, 0),
+                        thickness=2
+                    )
+                if state.get_last_cube_info() is not None:
+                    cube, _ = state.get_last_cube_info()
+                    cv.rectangle(
+                        frame1,
+                        cube.square.get_up_left_point(),
+                        cube.square.get_down_right_point(),
+                        (0, 255, 0),
+                        thickness=2
+                    )
+
             self._check_cube(fr_counter, vid_fps, x, y, w, h)
             if (
                 state.cube_stands
@@ -459,7 +470,7 @@ class CheckCubeWrap:
                         frame1,
                         (x, y),
                         (x2, y2),
-                        (255),
+                        (0, 0, 255),
                         thickness=2)
 
     def _check_wrapper(self, fr_counter: int, vid_fps, x, y, x2, y2):
@@ -477,14 +488,16 @@ class CheckCubeWrap:
     def _check_cube(self, fr_counter: int, vid_fps, x, y, w, h):
         state = self._state
         x2, y2 = x+w, y+h
-        if w * h >= CONST.cube_min_area:
+        if w * h >= CONST.cube_detect_min_area:
             state.last_b_c_frame_n = fr_counter
             state.last_big_contour_square = (
                 Rectangle(x=x2-(y2-y), y=y, x2=x2, y2=y2))
             last_b_c_square_x, _ = state.last_big_contour_square.get_up_left_point()
             state.left_border_was_disturbed = last_b_c_square_x < CONST.cube_left_border
-        if (state.last_b_c_frame_n is not None
-                and (fr_counter - state.last_b_c_frame_n) / vid_fps >= CONST.one_second):
+        one_sec_without_b_c = (
+            state.last_b_c_frame_n is not None
+            and (fr_counter - state.last_b_c_frame_n) / vid_fps >= CONST.one_second)
+        if one_sec_without_b_c:
             if not state.left_border_was_disturbed and not state.cube_stands:
                 self._print_log(CONST.status_cube_stands,
                                 CONST.log_status_event)
@@ -501,8 +514,7 @@ class CheckCubeWrap:
             elif state.left_border_was_disturbed:
                 self._print_log(CONST.status_cube_left, CONST.log_status_event)
                 state.cube_stands = False
-            if not CONST.debug_show_vid:
-                state.last_big_contour_square = None
+            state.last_big_contour_square = None
             state.last_b_c_frame_n = None
             state.left_border_was_disturbed = True
 
