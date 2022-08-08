@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import Any, Optional, Tuple, List
 from copy import copy
 from datetime import datetime
+from enum import Enum, auto
 
 FILENAME: Optional[str] = None
 URL: Optional[str] = r'rtsp://admin:admin@10.98.26.30:554/live/main'
@@ -42,6 +43,51 @@ class CONST:
     log_root_dirname = 'logs'
     log_status_error = 0
     log_status_event = 1
+
+    class Direction(Enum):
+        down_left = auto()
+        left = auto()
+        up_left = auto()
+        up = auto()
+        up_right = auto()
+        right = auto()
+        down_right = auto()
+        down = auto()
+
+    @classmethod
+    def get_str_from_direction(cls, direction: Direction, arrival: bool) -> str:  # TODO
+        if direction is CONST.Direction.down_left:
+            if arrival:
+                return 'снизу слева'
+            return 'вниз влево'
+        elif direction is CONST.Direction.left:
+            if arrival:
+                return 'слева'
+            return 'влево'
+        elif direction is CONST.Direction.up_left:
+            if arrival:
+                return 'сверху слева'
+            return 'вверх влево'
+        elif direction is CONST.Direction.up:
+            if arrival:
+                return 'сверху'
+            return 'вверх'
+        elif direction is CONST.Direction.up_right:
+            if arrival:
+                return 'сверху справа'
+            return 'вверх вправо'
+        elif direction is CONST.Direction.right:
+            if arrival:
+                return 'справа'
+            return 'вправо'
+        elif direction is CONST.Direction.down_right:
+            if arrival:
+                return 'снизу справа'
+            return 'вниз вправо'
+        elif direction is CONST.Direction.down:
+            if arrival:
+                return 'снизу'
+            return 'вниз'
 
     @classmethod
     def get_log_line(cls, date_time: str, event: str, cam_id: str, text: str):
