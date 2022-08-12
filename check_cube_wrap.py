@@ -1,124 +1,35 @@
 import cv2 as cv
 import os
+import torch
 from time import time, sleep
 from argparse import ArgumentParser
-from typing import Any, Optional, Tuple, List
+from typing import Optional, Tuple, List
 from copy import copy
 from datetime import datetime
 from enum import Enum, auto
+from math import sqrt
 
 FILENAME: Optional[str] = None
 URL: Optional[str] = r'rtsp://admin:admin@10.98.26.30:554/live/main'
 
 
-class CONST:
-    cube_detect_min_area = int(3e5)
-    cube_left_border = int(4e2)
-    cube_square_size_increase = int(1e2)
-    cube_square_x_increase = int(9e1)
+class Direction(Enum):
+    down_left = auto()
+    left = auto()
+    up_left = auto()
+    up = auto()
+    up_right = auto()
+    right = auto()
+    down_right = auto()
+    down = auto()
+    center = auto()
 
-    wrapper_min_area = int(1e4)
-    wrapper_circles_for_one_wrap = 10
 
-    one_second = 1
-    camera_reconnect_sec = 2
-    camera_connect_lost_sec = 10
-
-    camera_reconnect_text = 'Переподключение к камере'
-    camera_connect_lost_text = 'Пропало подключение к камере'
-
-    debug_root_dirname = 'debug'
-    debug_wrapper_imgs_dirname = 'wrapper_moves'
-
-    debug_show_vid = False
-    debug_show_time_in_console = False
-    debug_show_left_border = False
-    debug_skip_sec_beginning = 120
-    debug_skip_sec = 10
-
-    status_cube_stands = 'Куб выехал на обмотку'
-    status_cube_was_wrapped = 'Куб обмотан'
-    status_cube_left = 'Куб уехал'
-
-    log_root_dirname = 'logs'
-    log_status_error = 0
-    log_status_event = 1
-
-    class Direction(Enum):
-        down_left = auto()
-        left = auto()
-        up_left = auto()
-        up = auto()
-        up_right = auto()
-        right = auto()
-        down_right = auto()
-        down = auto()
-
-    @classmethod
-    def get_str_from_direction(cls, direction: Direction, arrival: bool) -> str:  # TODO
-        if direction is CONST.Direction.down_left:
-            if arrival:
-                return 'снизу слева'
-            return 'вниз влево'
-        elif direction is CONST.Direction.left:
-            if arrival:
-                return 'слева'
-            return 'влево'
-        elif direction is CONST.Direction.up_left:
-            if arrival:
-                return 'сверху слева'
-            return 'вверх влево'
-        elif direction is CONST.Direction.up:
-            if arrival:
-                return 'сверху'
-            return 'вверх'
-        elif direction is CONST.Direction.up_right:
-            if arrival:
-                return 'сверху справа'
-            return 'вверх вправо'
-        elif direction is CONST.Direction.right:
-            if arrival:
-                return 'справа'
-            return 'вправо'
-        elif direction is CONST.Direction.down_right:
-            if arrival:
-                return 'снизу справа'
-            return 'вниз вправо'
-        elif direction is CONST.Direction.down:
-            if arrival:
-                return 'снизу'
-            return 'вниз'
-
-    @classmethod
-    def get_log_line(cls, date_time: str, event: str, cam_id: str, text: str):
-        return date_time + ' | ' + event + ' | ' + cam_id + ' | ' + text + '\n'
-
-    @classmethod
-    def get_log_filename(cls, date):
-        return f'./{cls.log_root_dirname}/' + date + '.txt'
-
-    @classmethod
-    def get_debug_circle_full_dirname(cls, cube_full_dirname: str, circle_i: int):
-        return f'{cube_full_dirname}/{cls.debug_wrapper_imgs_dirname}/circle_{circle_i}'
-
-    @classmethod
-    def get_debug_cube_full_dirname(
-        cls,
-        vid_name: str,
-        frame_n: int,
-        cube_was_wrapped: bool
-    ) -> str:
-        first_part = f'{cls.debug_root_dirname}/{vid_name}_{frame_n}_cube'
-        postfix = '_wrapped' if cube_was_wrapped else '_not_wrapped'
-        return first_part + postfix
-
-    @classmethod
-    def get_cube_stop_png_name(cls, frame_n: int, sec: int):
-        return f'cube_{frame_n}_{sec}.png'
-
-    @classmethod
-    def get_wrapper_png_name(cls, frame_n: int, sec: int):
-        return f'{frame_n}_{sec}.png'
+class CubeState(Enum):
+    no_cube = auto()
+    cube_arrives = auto()
+    cube_is_wrapping = auto()
+    wrapped_cube_leaves = auto()
 
 
 class Rectangle:
@@ -180,6 +91,148 @@ class Rectangle:
         self._y += y
         self._x2 += x2
         self._y2 += y2
+
+
+class CONST:
+    cube_size_mod = int(1e2)
+
+    wrapper_min_area = int(1e4)
+    wrapper_circles_for_one_wrap = 10
+
+    one_second = 1
+    camera_reconnect_sec = 2
+    camera_connect_lost_sec = 10
+    multiple_cubes_err_delay_sec = 5
+
+    cam_id: str = 'cube_wrap'
+
+    camera_reconnect_text = 'Переподключение к камере'
+    camera_connect_lost_text = 'Пропало подключение к камере'
+
+    debug_root_dirname = 'debug'
+    debug_wrapper_imgs_dirname = 'wrapper_moves'
+
+    debug_show_vid = True
+    debug_show_time_in_console = False
+    debug_show_left_border = False
+    debug_skip_sec_beginning = 90
+    debug_skip_sec = 10
+
+    # Сделать метод для склеивания этих статусов и get_str_from_direction
+    status_cube_was_wrapped = 'Куб обмотан'
+    status_multiple_cubes = 'Обнаружено более одного куба!'
+
+    log_root_dirname = 'logs'
+    log_status_error = 0
+    log_status_event = 1
+
+    @classmethod
+    def status_cube_arrived(cls, direction: Optional[Direction] = None):
+        main_message = 'Куб выехал на обмотку'
+        if direction is None:
+            return main_message
+        return f'{main_message}: {cls.get_str_from_direction(direction, arrival=True)}'
+
+    @classmethod
+    def status_cube_left(cls, wrapped: bool = True, direction: Optional[Direction] = None):
+        main_message = 'Куб уехал' if wrapped else 'Необмотанный куб уехал'
+        if direction is None:
+            return main_message
+        return f'{main_message}: {cls.get_str_from_direction(direction, arrival=False)}'
+
+    @classmethod
+    def get_str_from_direction(cls, direction: Direction, arrival: bool) -> str:
+        if direction is Direction.down_left:
+            if arrival:
+                return 'снизу слева'
+            return 'вниз влево'
+        elif direction is Direction.left:
+            if arrival:
+                return 'слева'
+            return 'влево'
+        elif direction is Direction.up_left:
+            if arrival:
+                return 'сверху слева'
+            return 'вверх влево'
+        elif direction is Direction.up:
+            if arrival:
+                return 'сверху'
+            return 'вверх'
+        elif direction is Direction.up_right:
+            if arrival:
+                return 'сверху справа'
+            return 'вверх вправо'
+        elif direction is Direction.right:
+            if arrival:
+                return 'справа'
+            return 'вправо'
+        elif direction is Direction.down_right:
+            if arrival:
+                return 'снизу справа'
+            return 'вниз вправо'
+        elif direction is Direction.down:
+            if arrival:
+                return 'снизу'
+            return 'вниз'
+        elif direction is Direction.center:
+            return 'по центру'
+
+    @classmethod
+    def get_log_line(cls, date_time: str, event: str, cam_id: str, text: str):
+        return date_time + ' | ' + event + ' | ' + cam_id + ' | ' + text + '\n'
+
+    @classmethod
+    def get_log_filename(cls, date):
+        return f'./{cls.log_root_dirname}/' + date + '.txt'
+
+    @classmethod
+    def get_debug_circle_full_dirname(cls, cube_full_dirname: str, circle_i: int):
+        return f'{cube_full_dirname}/{cls.debug_wrapper_imgs_dirname}/circle_{circle_i}'
+
+    @classmethod
+    def get_debug_cube_full_dirname(
+        cls,
+        vid_name: str,
+        frame_n: int,
+        cube_was_wrapped: bool
+    ) -> str:
+        first_part = f'{cls.debug_root_dirname}/{vid_name}_{frame_n}_cube'
+        postfix = '_wrapped' if cube_was_wrapped else '_not_wrapped'
+        return first_part + postfix
+
+    @classmethod
+    def get_cube_stop_png_name(cls, frame_n: int, sec: int):
+        return f'cube_{frame_n}_{sec}.png'
+
+    @classmethod
+    def get_wrapper_png_name(cls, frame_n: int, sec: int):
+        return f'{frame_n}_{sec}.png'
+
+    @classmethod
+    def apply_cube_size_modifier(cls, square: Rectangle, with_minus=False):
+        sign = 1 if not with_minus else -1
+        square.apply_offset_to_points(
+            sign * -cls.cube_size_mod,
+            sign * -cls.cube_size_mod,
+            sign * cls.cube_size_mod,
+            sign * cls.cube_size_mod
+        )
+
+    @classmethod
+    def print_log(cls, text: str, event_n: int):
+        print(datetime.today(), text)
+        cls.write_log(text, event_n)
+
+    @classmethod
+    def write_log(cls, text: str, event_n: int):
+        event_str = 'EVENT' if event_n == cls.log_status_event else 'ERROR'
+        date_time = datetime.now().astimezone()
+        file_name = cls.get_log_filename(str(date_time.date()))
+        os.makedirs(cls.log_root_dirname, exist_ok=True)
+        with open(file_name, 'a') as log:
+            log.write(cls.get_log_line(
+                str(date_time), event_str, cls.cam_id, text)
+            )
 
 
 class WrapperInfo:
@@ -334,118 +387,278 @@ class WrapCircle:
 
 
 class CheckCubeWrap_State:
-    cube_stands = False
-    left_border_was_disturbed = True
-    last_b_c_frame_n: Optional[int] = None
-    last_big_contour_square: Optional[Rectangle] = None
+    _fr_counter: int = 0
+    _vid_fps: int | float
+    _vid_shape: Tuple[int, int]
+    _vid_center: Tuple[int, int]
 
-    _last_cube: Optional[CubeInfo] = None
+    _cube_state: CubeState = CubeState.no_cube
+    _cube: Optional[Rectangle] = None
+    _cube_info: Optional[CubeInfo] = None
+    _cube_circles: Optional[List[WrapCircle]] = None
+
+    _last_multiple_cubes_time: Optional[float] = None
+    _last_cube_frame_n: Optional[int] = None
+    _last_cube: Optional[Rectangle] = None
+    _last_cube_info: Optional[CubeInfo] = None
     _last_cube_circles: Optional[List[WrapCircle]] = None
 
-    def set_cube_info(self, cube_info: CubeInfo):
-        self._last_cube = cube_info
-        self._last_cube_circles = []
+    def __init__(self, vid) -> None:
+        self._vid_fps = vid.get(cv.CAP_PROP_FPS)
+        self._vid_shape = (
+            int(vid.get(cv.CAP_PROP_FRAME_WIDTH)),
+            int(vid.get(cv.CAP_PROP_FRAME_HEIGHT))
+        )
+        self._vid_center = (self._vid_shape//2, self._vid_shape//2)
 
-    def set_last_cube_wrapped(self):
-        self._last_cube.was_wrapped = True
+    def signal_no_cube(self, print_log: bool = True):
+        if self._cube_state is CubeState.no_cube:
+            return
+        if print_log:
+            direction = self.get_direction_from_rect(self._last_cube)
+            if (
+                self._cube_state is CubeState.cube_is_wrapping
+                or self._cube_state is CubeState.cube_arrives
+            ):
+                CONST.print_log(
+                    CONST.status_cube_left(wrapped=False, direction=direction),
+                    CONST.log_status_error
+                )
+            elif self._cube_state is CubeState.wrapped_cube_leaves:
+                status = (
+                    CONST.log_status_error
+                    if direction is Direction.center
+                    else CONST.log_status_event
+                )
+                CONST.print_log(
+                    CONST.status_cube_left(direction=direction),
+                    status
+                )
+        self._fr_counter = 0
 
-    def last_cube_was_wrapped(self):
-        return self._last_cube.was_wrapped
+        self._cube_state = CubeState.no_cube
+        self._cube = None
+        self._cube_info = None
+        self._cube_circles = None
+
+    def signal_cube_stands(self):
+        if self._cube_state is CubeState.cube_arrives:
+            direction = self.get_direction_from_rect(self._last_cube)
+            status = (
+                CONST.log_status_error
+                if direction is Direction.center
+                else CONST.log_status_event
+            )
+            CONST.print_log(
+                CONST.status_cube_arrived(direction=direction),
+                status
+            )
+            self._cube_state = CubeState.cube_is_wrapping
+
+        cube = self._cube.get_copy()
+        CONST.apply_cube_size_modifier(cube)
+        cube_stop_frame_n: int = (
+            self.get_frame_n_for_info(self._last_cube_frame_n)
+        )
+        self._cube_info = CubeInfo(
+            cube_stop_frame_n=cube_stop_frame_n,
+            cube_stop_sec=int(cube_stop_frame_n / self._vid_fps),
+            square=cube
+        )
+        if self._cube_circles is None:
+            self._cube_circles = []
+
+        self._last_cube_info = self._cube_info
+        self._last_cube_circles = self._cube_circles
+
+    def signal_cube_moves(self, next_cube: Rectangle):
+        if self._cube_state is CubeState.no_cube:
+            self._cube_state = CubeState.cube_arrives
+
+        self._cube = next_cube.get_copy()
+
+        self._last_cube = self._cube
+        self._last_cube_frame_n = self._fr_counter
+
+    def signal_cube_wrapped(self):
+        CONST.print_log(CONST.status_cube_was_wrapped, CONST.log_status_event)
+        self._cube_info.was_wrapped = True
+        self._cube_state = CubeState.wrapped_cube_leaves
+
+    def set_last_multiple_cubes_time(self):
+        self._last_multiple_cubes_time = time()
+
+    def increment_fr_counter(self):
+        self._fr_counter += 1
 
     def get_last_cube_info(self) -> Optional[Tuple[CubeInfo, List[WrapCircle]]]:
-        return None if self._last_cube is None else (self._last_cube, self._last_cube_circles)
+        return (
+            None
+            if self._last_cube_info is None
+            else (self._last_cube_info, self._last_cube_circles)
+        )
 
-    def try_add_wrapper_info(self, wrapper_info: WrapperInfo) -> bool:
-        if (
-            len(self._last_cube_circles) == 0
-            or self._last_cube_circles[-1].try_get_circle() is not None
-        ):
-            self._last_cube_circles.append(
-                WrapCircle(cube_square=self._last_cube.square))
-        return self._last_cube_circles[-1].try_add_wrapper_info(wrapper_info)
+    def get_frame_n_for_info(self, frame_n: int):
+        return (
+            int(frame_n + self._vid_fps * CONST.debug_skip_sec_beginning)
+            if CONST.debug_show_vid
+            else frame_n
+        )
+
+    def get_dist_to_vid_center(self, rect: Rectangle):
+        x, y, x2, y2 = rect.get_two_points()
+        v = ((x2 - x)/2, (y2 - y)/2)
+        xc, yc = int(x + v[0]), int(y + v[1])
+        return self.get_dist_between_two_points(
+            xc,
+            yc,
+            self._vid_center[0],
+            self._vid_center[1]
+        )
+
+    @staticmethod
+    def get_dist_between_two_points(x, y, x2, y2):
+        return sqrt((x2 - x)**2 + (y2 - y)**2)
+
+    @classmethod
+    def get_direction_from_rect(cls, rect: Rectangle) -> Direction:
+        points = rect.get_four_points()
+        first = points[0], points[1]
+        second = points[2], points[3]
+        third = points[4], points[5]
+        fourth = points[6], points[7]
+        ordered_points = first, fourth, second, third
+        # TODO: giant switch with get_point_quadrant
+
+    @classmethod
+    def get_point_quadrant(cls, x: int, y: int) -> int:  # TODO: recheck
+        if x > cls._vid_center[0] and y > cls._vid_center[1]:
+            return 4
+        elif x < cls._vid_center[0] and y > cls._vid_center[1]:
+            return 3
+        elif x > cls._vid_center[0] and y < cls._vid_center[1]:
+            return 1
+        return 2
+
+    def last_multiple_cubes_time(self):
+        return self._last_multiple_cubes_time
+
+    def fr_counter(self):
+        return self._fr_counter
+
+    def vid_fps(self):
+        return self._vid_fps
+
+    def cube(self):
+        return self._cube
+
+    def last_cube_frame_n(self):
+        return self._last_cube_frame_n
+
+    def cube_is_wrapping(self):
+        return self._cube_state is CubeState.cube_is_wrapping
+
+    def cube_moved(self, next_cube: Rectangle):
+        if self._cube is None:
+            return True
+        # TODO
+
+    def one_sec_without_move(self):
+        return (
+            self._last_cube_frame_n is not None
+            and (self._fr_counter - self._last_cube_frame_n) / self._vid_fps >= CONST.one_second
+        )
 
     def all_circles_are_done(self):
         return (
-            len(self._last_cube_circles) == CONST.wrapper_circles_for_one_wrap
-            and self._last_cube_circles[-1].try_get_circle() is not None)
+            len(self._cube_circles) == CONST.wrapper_circles_for_one_wrap
+            and self._cube_circles[-1].try_get_circle() is not None)
+
+    def try_add_wrapper_info(self, wrapper_info: WrapperInfo) -> bool:
+        if (
+            len(self._cube_circles) == 0
+            or self._cube_circles[-1].try_get_circle() is not None
+        ):
+            self._cube_circles.append(
+                WrapCircle(cube_square=self._cube_info.square)
+            )
+        return self._cube_circles[-1].try_add_wrapper_info(wrapper_info)
 
 
 class CheckCubeWrap:
+    _state: CheckCubeWrap_State
+
     _vid_name: str
-    _state = CheckCubeWrap_State()
+    _vid_cam: str
 
-    _video_cam: str
-    _cam_id: str = 'cube_wrap'
+    _model = torch.hub.load(
+        'ultralytics/yolov5',
+        'custom',
+        path='cube_wrap_detect.pt',
+        _verbose=False
+    )
 
-    def check_cube_wrap_vid(self, vid_name):
+    def check_cube_wrap(self, vid_name):
+        if FILENAME is not None:
+            self._check_cube_wrap_vid(FILENAME)
+        elif vid_name is not None and os.path.isfile(vid_name):
+            self._check_cube_wrap_vid(vid_name)
+        elif URL is not None:
+            self._check_cube_wrap_cam(URL)
+        elif vid_name is not None:
+            self._check_cube_wrap_cam(vid_name)
+
+    def _check_cube_wrap_vid(self, vid_name):
         self._vid_name = vid_name
         vid = cv.VideoCapture(self._vid_name)
-        vid_fps = vid.get(cv.CAP_PROP_FPS)
+        self._state = CheckCubeWrap_State(vid)
+        state = self._state
         if CONST.debug_show_vid:
-            vid.set(1, vid_fps * CONST.debug_skip_sec_beginning)
-        ret, frame1 = vid.read()
-        ret, frame2 = vid.read()
-        fr_counter = 2
+            vid.set(1, state.vid_fps() * CONST.debug_skip_sec_beginning)
+        ret, frame1 = self._read_frame(vid)
+        ret, frame2 = self._read_frame(vid)
         if CONST.debug_show_time_in_console:
             timer = time()
         while ret and vid.isOpened():
-            self._process_contours(frame1, frame2, fr_counter, vid_fps)
+            if state.fr_counter() % int(state.vid_fps() * CONST.one_second) == 0:
+                self._process_contours(frame1, frame2)
 
             if CONST.debug_show_vid:
-                if CONST.debug_show_left_border:
-                    cv.line(
-                        frame1,
-                        (CONST.cube_left_border, 0),
-                        (CONST.cube_left_border, 1000),
-                        (255)
-                    )
+                self._paint_vid(frame1)
                 frame1 = cv.resize(frame1, dsize=None, fx=0.5, fy=0.5)
                 cv.imshow("", frame1)
                 waitkey = cv.waitKey(1)
                 if waitkey == ord('q'):
                     break
-                elif CONST.debug_show_vid and waitkey == ord('d'):
-                    fr_counter += int(vid_fps * CONST.debug_skip_sec)
+                elif waitkey == ord('d'):
+                    for _ in range(int(state.vid_fps() * CONST.debug_skip_sec)):
+                        state.increment_fr_counter()
                     vid.set(
-                        1, CONST.debug_skip_sec_beginning * vid_fps + fr_counter
+                        1,
+                        CONST.debug_skip_sec_beginning * state.vid_fps() + state.fr_counter()
                     )
+
             frame1 = frame2
-            ret, frame2 = vid.read()
-            fr_counter += 1
-            sec = fr_counter / int(vid_fps)
+            ret, frame2 = self._read_frame(vid)
+            sec = state.fr_counter() / int(state.vid_fps())
+
             if CONST.debug_show_time_in_console and sec % 60 == 0 and sec // 60 != 0:
                 print(
                     f'{int(sec//60)} min / {int(time()-timer)} sec'
                 )
         self._end_the_check_vid(vid)
 
-    def check_cube_wrap_cam(self, vid_cam):
-        self._video_cam = vid_cam
+    def _check_cube_wrap_cam(self, vid_cam):  # TODO
+        self._vid_cam = vid_cam
         vid = cv.VideoCapture(vid_cam)
-        vid_fps = vid.get(cv.CAP_PROP_FPS)
+        self._state = CheckCubeWrap_State(vid)
         ret, frame1 = self._try_read_frame_cam(vid)
         ret, frame2 = self._try_read_frame_cam(vid)
-        fr_counter = 2
-
         while ret and vid.isOpened():
-            self._process_contours(frame1, frame2, fr_counter, vid_fps)
-
-            if CONST.debug_show_vid:
-                if CONST.debug_show_left_border:
-                    cv.line(
-                        frame1,
-                        (CONST.cube_left_border, 0),
-                        (CONST.cube_left_border, 1000),
-                        (255)
-                    )
-                frame1 = cv.resize(frame1, dsize=None, fx=0.5, fy=0.5)
-                cv.imshow("", frame1)
-                if cv.waitKey(1) == ord('q'):
-                    break
+            self._process_contours(frame1, frame2)
 
             frame1 = frame2
             ret, frame2 = self._try_read_frame_cam(vid)
-            fr_counter += 1
 
         self._end_the_check_cam(vid)
 
@@ -453,127 +666,128 @@ class CheckCubeWrap:
         connect_lost = False
         while True:
             try:
-                ret, frame = vid.read()
+                ret, frame = self._read_frame(vid)
                 if not ret:
                     if connect_lost:
                         raise
                     connect_lost = True
 
                     vid.release()
-                    self._write_log(
+                    CONST.write_log(
                         CONST.camera_reconnect_text,
                         CONST.log_status_error
                     )
                     sleep(CONST.camera_reconnect_sec)
-                    vid = cv.VideoCapture(self._video_cam)
+                    vid = cv.VideoCapture(self._vid_cam)
                     continue
                 return ret, frame
             except:
-                self._write_log(
+                CONST.write_log(
                     CONST.camera_connect_lost_text,
                     CONST.log_status_error
                 )
                 sleep(CONST.camera_connect_lost_sec)
+                self._state.signal_no_cube(print_log=False)
                 connect_lost = False
 
-    def _process_contours(self, frame1, frame2, fr_counter: int, vid_fps):
+    def _read_frame(self, vid):
+        self._state.increment_fr_counter()
+        return vid.read()
+
+    def _paint_vid(self, frame1):
         state = self._state
-        сontours, _ = cv.findContours(
+        if state.cube() is not None:
+            cv.rectangle(
+                frame1,
+                state.cube().get_up_left_point(),
+                state.cube().get_down_right_point(),
+                (255, 0, 0),
+                thickness=2
+            )
+        if state.get_last_cube_info() is not None:
+            cube, _ = state.get_last_cube_info()
+            cv.rectangle(
+                frame1,
+                cube.square.get_up_left_point(),
+                cube.square.get_down_right_point(),
+                (0, 255, 0),
+                thickness=2
+            )
+
+    def _process_contours(self, frame1, frame2):
+        state = self._state
+        res = self._model(cv.cvtColor(frame1, cv.COLOR_BGR2RGB), size=640)
+        df = res.pandas().xyxy[0]
+        cube = None
+        if len(df.index) == 1:
+            cube = Rectangle(
+                int(df['xmin'][0]),
+                int(df['ymin'][0]),
+                int(df['xmax'][0]),
+                int(df['ymax'][0])
+            )
+        elif len(df.index) > 1:
+            if (
+                state.last_multiple_cubes_time() is not None
+                and time() - state.last_multiple_cubes_time() > CONST.multiple_cubes_err_delay_sec
+            ):
+                CONST.print_log(CONST.status_multiple_cubes,
+                                CONST.log_status_error)
+                state.set_last_multiple_cubes_time()
+            cubes = []
+            dists = []
+            for i in range(len(df.index)):
+                cubes.append(
+                    Rectangle(
+                        int(df['xmin'][0]),
+                        int(df['ymin'][0]),
+                        int(df['xmax'][0]),
+                        int(df['ymax'][0])
+                    )
+                )
+                dists.append(state.get_dist_to_vid_center(cubes[i]))
+            min_i = dists.index(min(dists))
+            cube = cubes[min_i]
+
+        self._check_cube(cube)
+        if state.cube_is_wrapping():
+            for contour in self._get_countours(frame1, frame2):
+                (x, y, w, h) = cv.boundingRect(contour)
+                x2, y2 = x+w, y+h
+                if w * h >= CONST.wrapper_min_area:
+                    self._check_wrapper(x, y, x2, y2)
+                    if CONST.debug_show_vid:
+                        cv.rectangle(
+                            frame1,
+                            (x, y),
+                            (x2, y2),
+                            (0, 0, 255),
+                            thickness=2)
+
+    def _get_countours(self, frame1, frame2):
+        return cv.findContours(
             self._get_frames_diff(frame1, frame2),
             cv.RETR_TREE,
-            cv.CHAIN_APPROX_SIMPLE)
-        for contour in сontours:
-            (x, y, w, h) = cv.boundingRect(contour)
-            x2, y2 = x+w, y+h
-            if CONST.debug_show_vid:
-                if state.last_big_contour_square is not None:
-                    cv.rectangle(
-                        frame1,
-                        state.last_big_contour_square.get_up_left_point(),
-                        state.last_big_contour_square.get_down_right_point(),
-                        (255, 0, 0),
-                        thickness=2
-                    )
-                if state.get_last_cube_info() is not None:
-                    cube, _ = state.get_last_cube_info()
-                    cv.rectangle(
-                        frame1,
-                        cube.square.get_up_left_point(),
-                        cube.square.get_down_right_point(),
-                        (0, 255, 0),
-                        thickness=2
-                    )
+            cv.CHAIN_APPROX_SIMPLE)[0]
 
-            self._check_cube(fr_counter, vid_fps, x, y, w, h)
-            if (
-                state.cube_stands
-                and not state.last_cube_was_wrapped()
-                and w * h >= CONST.wrapper_min_area
-            ):
-                self._check_wrapper(fr_counter, vid_fps, x, y, x2, y2)
-                if CONST.debug_show_vid:
-                    cv.rectangle(
-                        frame1,
-                        (x, y),
-                        (x2, y2),
-                        (0, 0, 255),
-                        thickness=2)
-
-    def _check_wrapper(self, fr_counter: int, vid_fps, x, y, x2, y2):
+    def _check_wrapper(self, x, y, x2, y2):
         state = self._state
         wrapper_info = WrapperInfo(
-            frame_n=self._get_frame_n_for_info(fr_counter, vid_fps),
-            sec=int(fr_counter/vid_fps),
+            frame_n=state.get_frame_n_for_info(state.fr_counter()),
+            sec=int(state.fr_counter()/state.vid_fps()),
             rectangle=Rectangle(x=x, y=y, x2=x2, y2=y2)
         )
         if state.try_add_wrapper_info(wrapper_info) and state.all_circles_are_done():
-            self._print_log(CONST.status_cube_was_wrapped,
-                            CONST.log_status_event)
-            state.set_last_cube_wrapped()
+            state.signal_cube_wrapped()
 
-    def _check_cube(self, fr_counter: int, vid_fps, x, y, w, h):
+    def _check_cube(self, cube: Optional[Rectangle]):
         state = self._state
-        x2, y2 = x+w, y+h
-        if w * h >= CONST.cube_detect_min_area:
-            state.last_b_c_frame_n = fr_counter
-            state.last_big_contour_square = (
-                Rectangle(x=x2-(y2-y), y=y, x2=x2, y2=y2))
-            last_b_c_square_x, _ = state.last_big_contour_square.get_up_left_point()
-            state.left_border_was_disturbed = last_b_c_square_x < CONST.cube_left_border
-        one_sec_without_b_c = (
-            state.last_b_c_frame_n is not None
-            and (fr_counter - state.last_b_c_frame_n) / vid_fps >= CONST.one_second)
-        if one_sec_without_b_c:
-            if not state.left_border_was_disturbed and not state.cube_stands:
-                self._print_log(CONST.status_cube_stands,
-                                CONST.log_status_event)
-                state.cube_stands = True
-                self._enlarge_last_b_c_square()
-                cube_stop_frame_n: int = (
-                    self._get_frame_n_for_info(state.last_b_c_frame_n, vid_fps))
-                state.set_cube_info(
-                    CubeInfo(
-                        cube_stop_frame_n=cube_stop_frame_n,
-                        cube_stop_sec=int(cube_stop_frame_n / vid_fps),
-                        square=state.last_big_contour_square.get_copy())
-                )
-            elif state.left_border_was_disturbed:
-                self._print_log(CONST.status_cube_left, CONST.log_status_event)
-                state.cube_stands = False
-            state.last_big_contour_square = None
-            state.last_b_c_frame_n = None
-            state.left_border_was_disturbed = True
-
-    def _print_log(self, text: str, event_n: int):
-        print(datetime.today(), text)
-        self._write_log(text, event_n)
-
-    def _get_frame_n_for_info(self, frame_n: int, vid_fps):
-        return (
-            int(frame_n + vid_fps * CONST.debug_skip_sec_beginning)
-            if CONST.debug_show_vid
-            else frame_n
-        )
+        if cube is None:
+            state.signal_no_cube()
+        elif state.cube_moved(cube):
+            state.signal_cube_moves(cube)
+        elif state.one_sec_without_move():
+            state.signal_cube_stands()
 
     def _end_the_check_cam(self, vid_cam):
         vid_cam.release()
@@ -581,51 +795,25 @@ class CheckCubeWrap:
             cv.destroyAllWindows()
 
     def _end_the_check_vid(self, vid):
-        cube_info, wrapper_circles = self._state.get_last_cube_info()
-        self._write_cube_info(cube_info)
-        self._write_wrapper_circles(cube_info, wrapper_circles)
-        vid.release()
+        if self._state.get_last_cube_info() is not None:
+            cube_info, wrapper_circles = self._state.get_last_cube_info()
+            self._write_cube_info(cube_info)
+            self._write_wrapper_circles(cube_info, wrapper_circles)
+            vid.release()
         if CONST.debug_show_vid:
             cv.destroyAllWindows()
 
-    def _write_log(self, text: str, event_n: int):
-        event_str = 'EVENT' if event_n == CONST.log_status_event else 'ERROR'
-        date_time = datetime.now().astimezone()
-        file_name = CONST.get_log_filename(str(date_time.date()))
-        os.makedirs(CONST.log_root_dirname, exist_ok=True)
-        with open(file_name, 'a') as log:
-            log.write(CONST.get_log_line(
-                str(date_time), event_str, self._cam_id, text))
-
     def _write_cube_info(self, cube_info: CubeInfo):
-        self._downsize_cube_square(cube_info)
+        CONST.apply_cube_size_modifier(
+            cube_info.square,
+            with_minus=True
+        )
         cube_full_dirname = CONST.get_debug_cube_full_dirname(
             self._vid_name,
             cube_info.cube_stop_frame_n,
             cube_info.was_wrapped)
         os.makedirs(f'{cube_full_dirname}', exist_ok=True)
         self._create_cube_stop_img(cube_info, cube_full_dirname)
-
-    def _enlarge_last_b_c_square(self):
-        self._apply_cube_square_size_increase(
-            self._state.last_big_contour_square
-        )
-
-    def _downsize_cube_square(self, cube_info: CubeInfo):
-        self._apply_cube_square_size_increase(
-            cube_info.square,
-            with_minus=True
-        )
-
-    def _apply_cube_square_size_increase(self, square: Rectangle, with_minus=False):
-        sign = 1 if not with_minus else -1
-        square.apply_offset_to_points(
-            sign * -(CONST.cube_square_x_increase
-                     + CONST.cube_square_size_increase),
-            sign * -CONST.cube_square_size_increase,
-            sign * CONST.cube_square_size_increase,
-            sign * CONST.cube_square_size_increase
-        )
 
     def _write_wrapper_circles(
         self,
@@ -646,13 +834,15 @@ class CheckCubeWrap:
             if wrapper_infos is not None:
                 for wrapper_info in wrapper_infos:
                     self._create_wrapper_stop_img(
-                        circle_full_dirname, wrapper_info)
+                        circle_full_dirname, wrapper_info
+                    )
             circle_i += 1
 
     def _create_wrapper_stop_img(self, dirname: str, wrapper_info: WrapperInfo):
         wrapper_frame = self._cut_frame_from_vid(wrapper_info.frame_n)
         wrapper_img_filename = (
-            CONST.get_wrapper_png_name(wrapper_info.frame_n, wrapper_info.sec))
+            CONST.get_wrapper_png_name(wrapper_info.frame_n, wrapper_info.sec)
+        )
         cv.rectangle(
             wrapper_frame,
             wrapper_info.rectangle.get_up_left_point(),
@@ -664,10 +854,12 @@ class CheckCubeWrap:
 
     def _create_cube_stop_img(self, cube_info: CubeInfo, cube_full_dirname: str):
         cube_stop_frame = (
-            self._cut_frame_from_vid(cube_info.cube_stop_frame_n))
+            self._cut_frame_from_vid(cube_info.cube_stop_frame_n)
+        )
         cube_stop_filename = (
             CONST.get_cube_stop_png_name(
-                cube_info.cube_stop_frame_n, cube_info.cube_stop_sec))
+                cube_info.cube_stop_frame_n, cube_info.cube_stop_sec)
+        )
         cv.rectangle(
             cube_stop_frame,
             cube_info.square.get_up_left_point(),
@@ -700,11 +892,4 @@ if __name__ == '__main__':
     arg_parser.add_argument('vid_stream', type=str, nargs='?')
     args = arg_parser.parse_args()
 
-    if FILENAME is not None:
-        CheckCubeWrap().check_cube_wrap_vid(FILENAME)
-    elif args.vid_stream is not None and os.path.isfile(args.vid_stream):
-        CheckCubeWrap().check_cube_wrap_vid(args.vid_stream)
-    elif URL is not None:
-        CheckCubeWrap().check_cube_wrap_cam(URL)
-    elif args.vid_stream is not None:
-        CheckCubeWrap().check_cube_wrap_cam(args.vid_stream)
+    CheckCubeWrap().check_cube_wrap(args.vid_stream)
