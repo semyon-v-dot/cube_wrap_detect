@@ -430,7 +430,7 @@ class CheckCubeWrap_State:
             elif self._cube_state is CubeState.wrapped_cube_leaves:
                 status = (
                     CONST.log_status_error
-                    if direction is Direction.center
+                    if direction is not Direction.left
                     else CONST.log_status_event
                 )
                 CONST.print_log(
