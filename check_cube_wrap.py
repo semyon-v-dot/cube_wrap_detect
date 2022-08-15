@@ -120,23 +120,37 @@ class CONST:
     debug_skip_sec = 10
 
     # Сделать метод для склеивания этих статусов и get_str_from_direction
-    status_cube_was_wrapped = 'Куб обмотан'
-    status_multiple_cubes = 'Обнаружено более одного куба!'
+    text_cube_was_wrapped = 'Куб обмотан'
+    text_multiple_cubes = 'Обнаружено более одного куба!'
 
     log_root_dirname = 'logs'
     log_status_error = 0
     log_status_event = 1
 
     @classmethod
-    def status_cube_arrived(cls, direction: Optional[Direction] = None):
+    def text_cube_arrived(cls, direction: Optional[Direction] = None):
         main_message = 'Куб выехал'
         if direction is None:
             return main_message
         return f'{main_message}: {cls.get_str_from_direction(direction, arrival=True)}'
 
     @classmethod
-    def status_cube_left(cls, wrapped: bool = True, direction: Optional[Direction] = None):
+    def text_first_cube_arrived(cls, direction: Optional[Direction] = None):
+        main_message = 'Первый куб обнаружен'
+        if direction is None:
+            return main_message
+        return f'{main_message}: {cls.get_str_from_direction(direction, arrival=True)}'
+
+    @classmethod
+    def text_cube_left(cls, wrapped: bool = True, direction: Optional[Direction] = None):
         main_message = 'Куб уехал' if wrapped else 'Необмотанный куб уехал'
+        if direction is None:
+            return main_message
+        return f'{main_message}: {cls.get_str_from_direction(direction, arrival=False)}'
+
+    @classmethod
+    def text_first_cube_left(cls, wrapped: bool = True, direction: Optional[Direction] = None):
+        main_message = 'Первый куб уехал' if wrapped else 'Необмотанный первый куб уехал'
         if direction is None:
             return main_message
         return f'{main_message}: {cls.get_str_from_direction(direction, arrival=False)}'
@@ -405,6 +419,7 @@ class CheckCubeWrap_State:
     _last_cube_circles: Optional[List[WrapCircle]] = None
 
     _first_cube_moved: bool = False
+    _first_cube_left: bool = False
 
     def __init__(self, vid) -> None:
         self._vid_fps = vid.get(cv.CAP_PROP_FPS)
@@ -419,23 +434,25 @@ class CheckCubeWrap_State:
             return
         if print_log:
             direction = self.get_direction_from_rect(self._last_cube)
-            if (
-                self._cube_state is CubeState.cube_is_wrapping
-                or self._cube_state is CubeState.cube_arrives
-            ):
+            wrapped = self._cube_state is CubeState.wrapped_cube_leaves
+            if not self._first_cube_left:
                 CONST.print_log(
-                    CONST.status_cube_left(wrapped=False, direction=direction),
-                    CONST.log_status_error
+                    CONST.text_first_cube_left(
+                        wrapped=wrapped,
+                        direction=direction
+                    ),
+                    CONST.log_status_event
                 )
-            elif self._cube_state is CubeState.wrapped_cube_leaves:
-                status = (
+                self._first_cube_left = True
+            else:
+                log_status = (
                     CONST.log_status_error
-                    if direction is not Direction.left
+                    if direction is not Direction.left or not wrapped
                     else CONST.log_status_event
                 )
                 CONST.print_log(
-                    CONST.status_cube_left(direction=direction),
-                    status
+                    CONST.text_cube_left(wrapped=wrapped, direction=direction),
+                    log_status
                 )
         self._fr_counter = 0
 
@@ -467,18 +484,22 @@ class CheckCubeWrap_State:
     def signal_cube_moves(self, next_cube: Rectangle):
         if self._cube_state is CubeState.no_cube:
             direction = self.get_direction_from_rect(next_cube)
-            status = (
-                CONST.log_status_error
-                if direction is not Direction.right
-                else CONST.log_status_event
-            )
             if not self._first_cube_moved:
-                status = CONST.log_status_event
+                CONST.print_log(
+                    CONST.text_first_cube_arrived(direction=direction),
+                    CONST.log_status_event
+                )
                 self._first_cube_moved = True
-            CONST.print_log(
-                CONST.status_cube_arrived(direction=direction),
-                status
-            )
+            else:
+                log_status = (
+                    CONST.log_status_error
+                    if direction is not Direction.right
+                    else CONST.log_status_event
+                )
+                CONST.print_log(
+                    CONST.text_cube_arrived(direction=direction),
+                    log_status
+                )
             self._cube_state = CubeState.cube_arrives
 
         self._cube = next_cube.get_copy()
@@ -487,7 +508,7 @@ class CheckCubeWrap_State:
         self._last_cube_frame_n = self._fr_counter
 
     def signal_cube_wrapped(self):
-        CONST.print_log(CONST.status_cube_was_wrapped, CONST.log_status_event)
+        CONST.print_log(CONST.text_cube_was_wrapped, CONST.log_status_event)
         self._cube_info.was_wrapped = True
         self._cube_state = CubeState.wrapped_cube_leaves
 
@@ -761,7 +782,7 @@ class CheckCubeWrap:
                 state.last_multiple_cubes_time() is not None
                 and time() - state.last_multiple_cubes_time() > CONST.multiple_cubes_err_delay_sec
             ):
-                CONST.print_log(CONST.status_multiple_cubes,
+                CONST.print_log(CONST.text_multiple_cubes,
                                 CONST.log_status_error)
                 state.set_last_multiple_cubes_time()
             cubes = []
