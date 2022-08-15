@@ -697,8 +697,8 @@ class CheckCubeWrap:
 
             frame1 = frame2
             ret, frame2 = self._read_frame(vid)
-            sec = state.fr_counter() / int(state.vid_fps())
 
+            sec = state.fr_counter() / int(state.vid_fps())
             if CONST.debug_show_time_in_console and sec % 60 == 0 and sec // 60 != 0:
                 print(
                     f'{int(sec//60)} min / {int(time()-timer)} sec'
@@ -712,7 +712,8 @@ class CheckCubeWrap:
         ret, frame1 = self._try_read_frame_cam(vid)
         ret, frame2 = self._try_read_frame_cam(vid)
         while ret and vid.isOpened():
-            self._process_contours(frame1, frame2)
+            if self._state.fr_counter() % int(self._state.vid_fps() * CONST.one_second / 2) == 0:
+                self._process_contours(frame1, frame2)
 
             frame1 = frame2
             ret, frame2 = self._try_read_frame_cam(vid)
