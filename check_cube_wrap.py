@@ -429,10 +429,10 @@ class CheckCubeWrap_State:
         )
         self._vid_center = (self._vid_shape[0]//2, self._vid_shape[1]//2)
 
-    def signal_no_cube(self, print_log: bool = True):
+    def signal_no_cube(self, reconnect: bool = False):
         if self._cube_state is CubeState.no_cube:
             return
-        if print_log:
+        if not reconnect:
             direction = self.get_direction_from_rect(self._last_cube)
             wrapped = self._cube_state is CubeState.wrapped_cube_leaves
             if not self._first_cube_left:
@@ -460,6 +460,9 @@ class CheckCubeWrap_State:
                     CONST.text_cube_left(wrapped=wrapped, direction=direction),
                     log_status
                 )
+        else:
+            self._first_cube_left = False
+            self._first_cube_moved = False
         self._fr_counter = 0
 
         self._cube_state = CubeState.no_cube
@@ -745,7 +748,7 @@ class CheckCubeWrap:
                     CONST.log_status_error
                 )
                 sleep(CONST.camera_connect_lost_sec)
-                self._state.signal_no_cube(print_log=False)
+                self._state.signal_no_cube(reconnect=True)
                 connect_lost = False
 
     def _read_frame(self, vid):
