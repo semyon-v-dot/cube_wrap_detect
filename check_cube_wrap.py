@@ -95,6 +95,7 @@ class Rectangle:
 
 class CONST:
     cube_size_mod = int(1e2)
+    cube_max_no_move_px = 10 # TODO
 
     wrapper_min_area = int(1e4)
     wrapper_circles_for_one_wrap = 10
@@ -112,7 +113,7 @@ class CONST:
     debug_root_dirname = 'debug'
     debug_wrapper_imgs_dirname = 'wrapper_moves'
 
-    debug_show_vid = True
+    debug_show_vid = False
     debug_show_time_in_console = False
     debug_show_left_border = False
     debug_skip_sec_beginning = 90
@@ -128,7 +129,7 @@ class CONST:
 
     @classmethod
     def status_cube_arrived(cls, direction: Optional[Direction] = None):
-        main_message = 'Куб выехал на обмотку'
+        main_message = 'Куб выехал'
         if direction is None:
             return main_message
         return f'{main_message}: {cls.get_str_from_direction(direction, arrival=True)}'
@@ -409,7 +410,7 @@ class CheckCubeWrap_State:
             int(vid.get(cv.CAP_PROP_FRAME_WIDTH)),
             int(vid.get(cv.CAP_PROP_FRAME_HEIGHT))
         )
-        self._vid_center = (self._vid_shape//2, self._vid_shape//2)
+        self._vid_center = (self._vid_shape[0]//2, self._vid_shape[1]//2)
 
     def signal_no_cube(self, print_log: bool = True):
         if self._cube_state is CubeState.no_cube:
@@ -443,16 +444,6 @@ class CheckCubeWrap_State:
 
     def signal_cube_stands(self):
         if self._cube_state is CubeState.cube_arrives:
-            direction = self.get_direction_from_rect(self._last_cube)
-            status = (
-                CONST.log_status_error
-                if direction is Direction.center
-                else CONST.log_status_event
-            )
-            CONST.print_log(
-                CONST.status_cube_arrived(direction=direction),
-                status
-            )
             self._cube_state = CubeState.cube_is_wrapping
 
         cube = self._cube.get_copy()
@@ -473,6 +464,16 @@ class CheckCubeWrap_State:
 
     def signal_cube_moves(self, next_cube: Rectangle):
         if self._cube_state is CubeState.no_cube:
+            direction = self.get_direction_from_rect(next_cube)
+            status = (
+                CONST.log_status_error
+                if direction is Direction.center
+                else CONST.log_status_event
+            )
+            CONST.print_log(
+                CONST.status_cube_arrived(direction=direction),
+                status
+            )
             self._cube_state = CubeState.cube_arrives
 
         self._cube = next_cube.get_copy()
@@ -516,27 +517,42 @@ class CheckCubeWrap_State:
             self._vid_center[1]
         )
 
-    @staticmethod
-    def get_dist_between_two_points(x, y, x2, y2):
-        return sqrt((x2 - x)**2 + (y2 - y)**2)
-
-    @classmethod
-    def get_direction_from_rect(cls, rect: Rectangle) -> Direction:
+    def get_direction_from_rect(self, rect: Rectangle) -> Direction:
         points = rect.get_four_points()
         first = points[0], points[1]
         second = points[2], points[3]
         third = points[4], points[5]
         fourth = points[6], points[7]
         ordered_points = first, fourth, second, third
-        # TODO: giant switch with get_point_quadrant
+        quadrants = [self.get_point_quadrant(*i) for i in ordered_points]
+        if quadrants[0] == quadrants[1] == quadrants[2] == quadrants[3] == 1:
+            return Direction.up_right
+        if quadrants[0] == quadrants[1] == quadrants[2] == quadrants[3] == 2:
+            return Direction.up_left
+        if quadrants[0] == quadrants[1] == quadrants[2] == quadrants[3] == 3:
+            return Direction.down_left
+        if quadrants[0] == quadrants[1] == quadrants[2] == quadrants[3] == 4:
+            return Direction.down_right
 
-    @classmethod
-    def get_point_quadrant(cls, x: int, y: int) -> int:  # TODO: recheck
-        if x > cls._vid_center[0] and y > cls._vid_center[1]:
+        if quadrants[0] == 2 and quadrants[1] == 1 and quadrants[2] == 4 and quadrants[3] == 3:
+            return Direction.center
+
+        if quadrants[0] == quadrants[1] == 1 and quadrants[2] == quadrants[3] == 4:
+            return Direction.right
+        if quadrants[0] == quadrants[1] == 2 and quadrants[2] == quadrants[3] == 3:
+            return Direction.left
+
+        if quadrants[0] == quadrants[3] == 2 and quadrants[1] == quadrants[2] == 1:
+            return Direction.up
+        if quadrants[0] == quadrants[3] == 3 and quadrants[1] == quadrants[2] == 4:
+            return Direction.down
+
+    def get_point_quadrant(self, x: int, y: int) -> int:
+        if x > self._vid_center[0] and y > self._vid_center[1]:
             return 4
-        elif x < cls._vid_center[0] and y > cls._vid_center[1]:
+        elif x < self._vid_center[0] and y > self._vid_center[1]:
             return 3
-        elif x > cls._vid_center[0] and y < cls._vid_center[1]:
+        elif x > self._vid_center[0] and y < self._vid_center[1]:
             return 1
         return 2
 
@@ -558,10 +574,15 @@ class CheckCubeWrap_State:
     def cube_is_wrapping(self):
         return self._cube_state is CubeState.cube_is_wrapping
 
-    def cube_moved(self, next_cube: Rectangle):
+    def cube_moved(self, next_cube: Rectangle) -> bool: # TODO
         if self._cube is None:
             return True
-        # TODO
+        first = next_cube.get_two_points()[:2]
+        second = self._cube.get_two_points()[:2]
+        dist = self.get_dist_between_two_points(*first, *second)
+        if dist > CONST.cube_max_no_move_px:
+            return True
+        return False
 
     def one_sec_without_move(self):
         return (
@@ -583,6 +604,10 @@ class CheckCubeWrap_State:
                 WrapCircle(cube_square=self._cube_info.square)
             )
         return self._cube_circles[-1].try_add_wrapper_info(wrapper_info)
+
+    @staticmethod
+    def get_dist_between_two_points(x, y, x2, y2):
+        return sqrt((x2 - x)**2 + (y2 - y)**2)
 
 
 class CheckCubeWrap:
@@ -620,7 +645,7 @@ class CheckCubeWrap:
         if CONST.debug_show_time_in_console:
             timer = time()
         while ret and vid.isOpened():
-            if state.fr_counter() % int(state.vid_fps() * CONST.one_second) == 0:
+            if state.fr_counter() % int(state.vid_fps() * CONST.one_second / 2) == 0:
                 self._process_contours(frame1, frame2)
 
             if CONST.debug_show_vid:
