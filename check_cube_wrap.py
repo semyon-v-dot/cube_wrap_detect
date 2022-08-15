@@ -95,7 +95,7 @@ class Rectangle:
 
 class CONST:
     cube_size_mod = int(1e2)
-    cube_max_no_move_px = 10 # TODO
+    cube_max_no_move_px = 10
 
     wrapper_min_area = int(1e4)
     wrapper_circles_for_one_wrap = 10
@@ -579,7 +579,7 @@ class CheckCubeWrap_State:
     def cube_is_wrapping(self):
         return self._cube_state is CubeState.cube_is_wrapping
 
-    def cube_moved(self, next_cube: Rectangle) -> bool: # TODO
+    def cube_moved(self, next_cube: Rectangle) -> bool:
         if self._cube is None:
             return True
         first = next_cube.get_two_points()[:2]
