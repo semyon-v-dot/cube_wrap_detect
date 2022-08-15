@@ -446,9 +446,15 @@ class CheckCubeWrap_State:
                 self._first_cube_left = True
             else:
                 log_status = (
-                    CONST.log_status_error
-                    if direction is not Direction.left or not wrapped
-                    else CONST.log_status_event
+                    CONST.log_status_event
+                    if (
+                        (direction is Direction.left
+                         or direction is Direction.up_left
+                         or direction is Direction.down_left
+                         )
+                        and wrapped
+                    )
+                    else CONST.log_status_error
                 )
                 CONST.print_log(
                     CONST.text_cube_left(wrapped=wrapped, direction=direction),
