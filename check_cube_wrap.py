@@ -404,6 +404,8 @@ class CheckCubeWrap_State:
     _last_cube_info: Optional[CubeInfo] = None
     _last_cube_circles: Optional[List[WrapCircle]] = None
 
+    _first_cube_moved: bool = False
+
     def __init__(self, vid) -> None:
         self._vid_fps = vid.get(cv.CAP_PROP_FPS)
         self._vid_shape = (
@@ -467,9 +469,12 @@ class CheckCubeWrap_State:
             direction = self.get_direction_from_rect(next_cube)
             status = (
                 CONST.log_status_error
-                if direction is Direction.center
+                if direction is not Direction.right
                 else CONST.log_status_event
             )
+            if not self._first_cube_moved:
+                status = CONST.log_status_event
+                self._first_cube_moved = True
             CONST.print_log(
                 CONST.status_cube_arrived(direction=direction),
                 status
