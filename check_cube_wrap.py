@@ -402,7 +402,7 @@ class WrapCircle:
 
 
 class CheckCubeWrap_State:
-    _fr_counter: int = 0
+    _fr_counter: int = 1
     _vid_fps: int | float
     _vid_shape: Tuple[int, int]
     _vid_center: Tuple[int, int]
@@ -444,6 +444,7 @@ class CheckCubeWrap_State:
                     CONST.log_status_event
                 )
                 self._first_cube_left = True
+                self._first_cube_moved = True
             else:
                 log_status = (
                     CONST.log_status_event
@@ -463,7 +464,7 @@ class CheckCubeWrap_State:
         else:
             self._first_cube_left = False
             self._first_cube_moved = False
-        self._fr_counter = 0
+        self._fr_counter = 1
 
         self._cube_state = CubeState.no_cube
         self._cube = None
@@ -953,4 +954,11 @@ if __name__ == '__main__':
     arg_parser.add_argument('vid_stream', type=str, nargs='?')
     args = arg_parser.parse_args()
 
-    CheckCubeWrap().check_cube_wrap(args.vid_stream)
+    if os.path.isdir(args.vid_stream):
+        for i in os.listdir(args.vid_stream):
+            if i.endswith('.mp4'):
+                print(f'{args.vid_stream}\{i}')
+                CheckCubeWrap().check_cube_wrap(f'{args.vid_stream}\{i}')
+
+    else: 
+        CheckCubeWrap().check_cube_wrap(args.vid_stream)
