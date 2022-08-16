@@ -687,7 +687,7 @@ class CheckCubeWrap:
             if state.fr_counter() % CONST.neuro_take_every_n_frame == 0:
                 self._process_contours(frame1, frame2)
 
-            if CONST.debug_show_vid and self._state.fr_counter() % CONST.debug_take_every_n_frame == 0:
+            if CONST.debug_show_vid and self._state.fr_counter() % CONST.debug_take_every_n_frame == 1:
                 self._paint_vid(frame1)
                 frame1 = cv.resize(frame1, dsize=None, fx=0.5, fy=0.5)
                 cv.imshow("", frame1)
