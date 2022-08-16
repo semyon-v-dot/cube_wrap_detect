@@ -105,7 +105,7 @@ class CONST:
     camera_connect_lost_sec = 10
     multiple_cubes_err_delay_sec = 5
 
-    neuro_take_every_n_frame = 12
+    neuro_take_every_n_frame = 24
 
     cam_id: str = 'cube_wrap'
 
