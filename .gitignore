@@ -3,6 +3,8 @@ ds_final/
 debug/
 logs/
 yolov3.weights
+*.mp4
+*.jpg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
