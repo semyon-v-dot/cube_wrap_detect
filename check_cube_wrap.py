@@ -113,11 +113,12 @@ class CONST:
     debug_root_dirname = 'debug'
     debug_wrapper_imgs_dirname = 'wrapper_moves'
 
-    debug_show_vid = False
+    debug_show_vid = True
     debug_show_time_in_console = False
     debug_show_left_border = False
     debug_skip_sec_beginning = 90
     debug_skip_sec = 10
+    debug_take_every_n_frame = 5
 
     # Сделать метод для склеивания этих статусов и get_str_from_direction
     text_cube_was_wrapped = 'Куб обмотан'
@@ -684,7 +685,7 @@ class CheckCubeWrap:
             if state.fr_counter() % int(state.vid_fps() * CONST.one_second / 2) == 0:
                 self._process_contours(frame1, frame2)
 
-            if CONST.debug_show_vid:
+            if CONST.debug_show_vid and self._state.fr_counter() % CONST.debug_take_every_n_frame == 0:
                 self._paint_vid(frame1)
                 frame1 = cv.resize(frame1, dsize=None, fx=0.5, fy=0.5)
                 cv.imshow("", frame1)
@@ -960,5 +961,5 @@ if __name__ == '__main__':
                 print(f'{args.vid_stream}\{i}')
                 CheckCubeWrap().check_cube_wrap(f'{args.vid_stream}\{i}')
 
-    else: 
+    else:
         CheckCubeWrap().check_cube_wrap(args.vid_stream)
