@@ -115,7 +115,7 @@ class CONST:
     debug_root_dirname = 'debug'
     debug_wrapper_imgs_dirname = 'wrapper_moves'
 
-    debug_show_vid = True
+    debug_show_vid = False
     debug_show_time_in_console = False
     debug_show_left_border = False
     debug_skip_sec_beginning = 90
