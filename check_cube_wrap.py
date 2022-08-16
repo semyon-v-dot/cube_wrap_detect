@@ -120,7 +120,7 @@ class CONST:
     debug_show_left_border = False
     debug_skip_sec_beginning = 90
     debug_skip_sec = 10
-    debug_take_every_n_frame = 5
+    debug_take_every_n_frame = neuro_take_every_n_frame
 
     # Сделать метод для склеивания этих статусов и get_str_from_direction
     text_cube_was_wrapped = 'Куб обмотан'
