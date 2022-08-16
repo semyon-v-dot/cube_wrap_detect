@@ -713,7 +713,7 @@ class CheckCubeWrap:
                 )
         self._end_the_check_vid(vid)
 
-    def _check_cube_wrap_cam(self, vid_cam):  # TODO
+    def _check_cube_wrap_cam(self, vid_cam):
         self._vid_cam = vid_cam
         vid = cv.VideoCapture(vid_cam)
         self._state = CheckCubeWrap_State(vid)
@@ -857,8 +857,6 @@ class CheckCubeWrap:
 
     def _end_the_check_cam(self, vid_cam):
         vid_cam.release()
-        if CONST.debug_show_vid:
-            cv.destroyAllWindows()
 
     def _end_the_check_vid(self, vid):
         if self._state.get_last_cube_info() is not None:
