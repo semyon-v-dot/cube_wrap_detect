@@ -105,6 +105,8 @@ class CONST:
     camera_connect_lost_sec = 10
     multiple_cubes_err_delay_sec = 5
 
+    neuro_take_every_n_frame = 12
+
     cam_id: str = 'cube_wrap'
 
     camera_reconnect_text = 'Переподключение к камере'
@@ -682,7 +684,7 @@ class CheckCubeWrap:
         if CONST.debug_show_time_in_console:
             timer = time()
         while ret and vid.isOpened():
-            if state.fr_counter() % int(state.vid_fps() * CONST.one_second / 2) == 0:
+            if state.fr_counter() % CONST.neuro_take_every_n_frame == 0:
                 self._process_contours(frame1, frame2)
 
             if CONST.debug_show_vid and self._state.fr_counter() % CONST.debug_take_every_n_frame == 0:
@@ -717,7 +719,7 @@ class CheckCubeWrap:
         ret, frame1 = self._try_read_frame_cam(vid)
         ret, frame2 = self._try_read_frame_cam(vid)
         while ret and vid.isOpened():
-            if self._state.fr_counter() % int(self._state.vid_fps() * CONST.one_second / 2) == 0:
+            if self._state.fr_counter() % CONST.neuro_take_every_n_frame == 0:
                 self._process_contours(frame1, frame2)
 
             frame1 = frame2
