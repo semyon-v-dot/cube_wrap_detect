@@ -656,9 +656,10 @@ class CheckCubeWrap:
     _vid_cam: str
 
     _model = torch.hub.load(
-        'ultralytics/yolov5',
+        'yolov5',
         'custom',
-        path='cube_wrap_detect.pt',
+        path='cube_wrap_detect.pt', 
+        source='local',
         _verbose=False
     )
 
