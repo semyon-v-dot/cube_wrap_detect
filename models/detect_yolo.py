@@ -47,7 +47,7 @@ class Box:
 class Detect_yolo:
     def __init__(
         self,
-        yolo_setting: Yolo_setting = Yolo_setting(),
+        yolo_setting: Yolo_setting,
         imgsz = (640, 640)
     ) -> None:
         self.device = select_device(yolo_setting.device)
