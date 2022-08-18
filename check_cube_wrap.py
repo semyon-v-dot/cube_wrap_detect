@@ -953,11 +953,10 @@ if __name__ == '__main__':
     arg_parser.add_argument('vid_stream', type=str, nargs='?')
     args = arg_parser.parse_args()
 
-    if os.path.isdir(args.vid_stream):
+    if args.vid_stream is not None and os.path.isdir(args.vid_stream):
         for i in os.listdir(args.vid_stream):
             if i.endswith('.mp4'):
                 print(f'{args.vid_stream}\{i}')
                 CheckCubeWrap().check_cube_wrap(f'{args.vid_stream}\{i}')
-
     else:
         CheckCubeWrap().check_cube_wrap(args.vid_stream)
