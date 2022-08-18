@@ -2,9 +2,13 @@ ds/
 ds_final/
 debug/
 logs/
-yolov3.weights
+test/
+
 *.mp4
 *.jpg
+*.rar
+
+to_skip.p
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
