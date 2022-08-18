@@ -2,7 +2,7 @@ import cv2 as cv
 import os
 from time import time, sleep
 from argparse import ArgumentParser
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union
 from copy import copy
 from datetime import datetime
 from enum import Enum, auto
@@ -409,7 +409,7 @@ class WrapCircle:
 
 class CheckCubeWrap_State:
     _fr_counter: int = 1
-    _vid_fps: int | float
+    _vid_fps: Union[int, float]
     _vid_shape: Tuple[int, int]
     _vid_center: Tuple[int, int]
 
