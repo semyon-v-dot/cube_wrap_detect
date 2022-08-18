@@ -1,6 +1,5 @@
 import cv2 as cv
 import os
-import torch
 from time import time, sleep
 from argparse import ArgumentParser
 from typing import Optional, Tuple, List
@@ -8,6 +7,9 @@ from copy import copy
 from datetime import datetime
 from enum import Enum, auto
 from math import sqrt
+
+from models import Detect_yolo
+from setting import Yolo_setting
 
 FILENAME: Optional[str] = None
 URL: Optional[str] = r'rtsp://admin:admin@10.98.26.30:554/live/main'
@@ -122,13 +124,14 @@ class CONST:
     debug_skip_sec = 10
     debug_take_every_n_frame = neuro_take_every_n_frame
 
-    # Сделать метод для склеивания этих статусов и get_str_from_direction
     text_cube_was_wrapped = 'Куб обмотан'
     text_multiple_cubes = 'Обнаружено более одного куба!'
 
     log_root_dirname = 'logs'
     log_status_error = 0
     log_status_event = 1
+
+    weights_filename = 'cube_wrap_detect.pt'
 
     @classmethod
     def text_cube_arrived(cls, direction: Optional[Direction] = None):
@@ -655,13 +658,8 @@ class CheckCubeWrap:
     _vid_name: str
     _vid_cam: str
 
-    _model = torch.hub.load(
-        'yolov5',
-        'custom',
-        path='cube_wrap_detect.pt', 
-        source='local',
-        _verbose=False
-    )
+    yolo_setting = Yolo_setting(weights=CONST.weights_filename, device='cpu')
+    _model = Detect_yolo(yolo_setting=yolo_setting)
 
     def check_cube_wrap(self, vid_name):
         if FILENAME is not None:
@@ -782,17 +780,16 @@ class CheckCubeWrap:
 
     def _process_contours(self, frame1, frame2):
         state = self._state
-        res = self._model(cv.cvtColor(frame1, cv.COLOR_BGR2RGB), size=640)
-        df = res.pandas().xyxy[0]
+        res = self._model.detect(frame1)
         cube = None
-        if len(df.index) == 1:
+        if len(res) == 1:
             cube = Rectangle(
-                int(df['xmin'][0]),
-                int(df['ymin'][0]),
-                int(df['xmax'][0]),
-                int(df['ymax'][0])
+                res[0].left,
+                res[0].top,
+                res[0].right,
+                res[0].bottom
             )
-        elif len(df.index) > 1:
+        elif len(res) > 1:
             if (
                 state.last_multiple_cubes_time() is not None
                 and time() - state.last_multiple_cubes_time() > CONST.multiple_cubes_err_delay_sec
@@ -802,13 +799,13 @@ class CheckCubeWrap:
                 state.set_last_multiple_cubes_time()
             cubes = []
             dists = []
-            for i in range(len(df.index)):
+            for i in range(len(res)):
                 cubes.append(
                     Rectangle(
-                        int(df['xmin'][0]),
-                        int(df['ymin'][0]),
-                        int(df['xmax'][0]),
-                        int(df['ymax'][0])
+                        res[i].left,
+                        res[i].top,
+                        res[i].right,
+                        res[i].bottom
                     )
                 )
                 dists.append(state.get_dist_to_vid_center(cubes[i]))
