@@ -52,6 +52,9 @@ class Rectangle:
             self._x = x
             self._y = y
 
+    def get_area(self) -> int:
+        return abs(self._x2 - self._x) * abs(self._y2 - self._y)
+    
     def get_adjacent_pairs_of_points(self) -> (
         List[
             Tuple[
@@ -96,6 +99,7 @@ class Rectangle:
 
 
 class CONST:
+    cube_min_area = int(1e5)
     cube_size_mod = int(1e2)
     cube_max_no_move_px = 10
 
@@ -117,10 +121,10 @@ class CONST:
     debug_root_dirname = 'debug'
     debug_wrapper_imgs_dirname = 'wrapper_moves'
 
-    debug_show_vid = False
+    debug_show_vid = True
     debug_show_time_in_console = False
     debug_show_left_border = False
-    debug_skip_sec_beginning = 90
+    debug_skip_sec_beginning = 540
     debug_skip_sec = 10
     debug_take_every_n_frame = neuro_take_every_n_frame
 
@@ -811,7 +815,7 @@ class CheckCubeWrap:
                 dists.append(state.get_dist_to_vid_center(cubes[i]))
             min_i = dists.index(min(dists))
             cube = cubes[min_i]
-
+        
         self._check_cube(cube)
         if state.cube_is_wrapping():
             for contour in self._get_countours(frame1, frame2):
@@ -845,7 +849,7 @@ class CheckCubeWrap:
 
     def _check_cube(self, cube: Optional[Rectangle]):
         state = self._state
-        if cube is None:
+        if cube is None or cube.get_area() < CONST.cube_min_area:
             state.signal_no_cube()
         elif state.cube_moved(cube):
             state.signal_cube_moves(cube)
