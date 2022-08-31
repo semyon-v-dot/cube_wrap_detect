@@ -594,11 +594,11 @@ class CheckCubeWrap_State:
             return Direction.down
 
     def get_point_quadrant(self, x: int, y: int) -> int:
-        if x > self._vid_center[0] and y > self._vid_center[1]:
+        if x >= self._vid_center[0] and y >= self._vid_center[1]:
             return 4
-        elif x < self._vid_center[0] and y > self._vid_center[1]:
+        elif x <= self._vid_center[0] and y >= self._vid_center[1]:
             return 3
-        elif x > self._vid_center[0] and y < self._vid_center[1]:
+        elif x >= self._vid_center[0] and y <= self._vid_center[1]:
             return 1
         return 2
 
