@@ -1,4 +1,0 @@
-from .psr_qr_camera_setting import PSR_QR_camera_setting
-from .magazin_1_setting import Magazin_1_setting
-from .magazin_2_setting import Magazin_2_setting
-from .pinzet_setting import Pinzet_setting
